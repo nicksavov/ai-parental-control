@@ -25,12 +25,17 @@ The crate builds `cdylib` and `staticlib` for mobile linking plus an `rlib` for 
 
 ## Generating Kotlin and Swift bindings
 
-Install a `uniffi-bindgen` matching the `uniffi` version, then point it at the built library:
+This crate ships its own `uniffi-bindgen` binary ([src/bin/uniffi-bindgen.rs](src/bin/uniffi-bindgen.rs)), so no separate tool install is needed. Build the library, then generate against it:
 
 ```
 cargo build -p apc-ffi
-uniffi-bindgen generate --library target/debug/apc_ffi.dll    --language kotlin --out-dir gen   # Windows
-uniffi-bindgen generate --library target/debug/libapc_ffi.dylib --language swift  --out-dir gen   # macOS
+# Kotlin (checked in to the Android app):
+cargo run -p apc-ffi --bin uniffi-bindgen -- generate \
+  --library target/debug/apc_ffi.dll --language kotlin \
+  --out-dir ../../apps/android-child/app/src/main/kotlin
+# Swift (for the iOS app, generated when that module is built):
+cargo run -p apc-ffi --bin uniffi-bindgen -- generate \
+  --library target/debug/libapc_ffi.dylib --language swift --out-dir gen
 ```
 
-The generated bindings are checked into the Android and iOS app modules. Adding a `uniffi-bindgen` binary target to automate this in CI is a follow-up.
+The generated Kotlin lands at `uniffi/apc_ffi/apc_ffi.kt` (package `uniffi.apc_ffi`) and is checked into the Android module. Regenerate it whenever this crate's exported surface changes. The Android side links the native `apc_ffi` library as a `jniLibs` `.so` and depends on JNA (see the app `build.gradle.kts`).

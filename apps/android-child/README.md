@@ -31,7 +31,7 @@ Pairing (claim a code, register device, X3DH via the Rust core), VpnService DNS 
 
 ## Wiring to the rest of the repo
 
-- Crypto and pairing call the generated UniFFI bindings from [../../packages/ffi](../../packages/ffi) (`uniffi.apc_ffi.*`) over a bundled native `.so`.
+- Crypto and pairing call the generated UniFFI bindings from [../../packages/ffi](../../packages/ffi) (`uniffi.apc_ffi.*`) over a bundled native `.so`. The generated Kotlin is checked in at `app/src/main/kotlin/uniffi/apc_ffi/apc_ffi.kt`; regenerate it with the command in the packages/ffi README when the Rust surface changes.
 - The backend API is [../../packages/proto/openapi.yaml](../../packages/proto/openapi.yaml).
 - Capability and policy limits per platform: [../../docs/architecture.md](../../docs/architecture.md).
 

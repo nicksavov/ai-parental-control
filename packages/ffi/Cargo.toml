@@ -10,10 +10,14 @@ repository.workspace = true
 name = "apc_ffi"
 crate-type = ["lib", "cdylib", "staticlib"]
 
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+
 [dependencies]
 apc-alert = { path = "../alert-schema" }
 apc-pairing = { path = "../pairing-protocol" }
 serde_json.workspace = true
-uniffi = "0.28"
+uniffi = { version = "0.28", features = ["cli"] }
 base64 = "0.22"
 thiserror = "1"
