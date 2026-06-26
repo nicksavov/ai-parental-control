@@ -1,0 +1,10 @@
+[package]
+name = "apc-ai"
+version = "0.1.0"
+description = "On-device content-safety pipeline (Stage-0 gate, conversation and image analysis)"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+apc-alert = { path = "../alert-schema" }
