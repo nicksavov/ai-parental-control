@@ -1,0 +1,12 @@
+# Normalize line endings: text stays LF in the repo, checked out native.
+* text=auto eol=lf
+
+# Treat known binaries as binary (defense in depth; most are gitignored).
+*.png binary
+*.jpg binary
+*.onnx binary
+*.gguf binary
+*.tflite binary
+*.mlmodel binary
+*.keystore binary
+*.jks binary

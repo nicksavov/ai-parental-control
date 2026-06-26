@@ -1,0 +1,11 @@
+[package]
+name = "apc-policy"
+version = "0.1.0"
+description = "The policy a parent sets for a child, shared across all agents"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
