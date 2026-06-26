@@ -1,0 +1,42 @@
+# Self-host stack for the coordination backend.
+# Heavy compute (AI) runs on child devices, not here. This only relays
+# small encrypted envelopes, so it fits a small VPS or a Raspberry Pi.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-apc}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-apc}
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-apc}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    restart: unless-stopped
+
+  api:
+    # The Go service. Dockerfile is added with the v0 implementation in ./api.
+    build: ./api
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-apc}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-apc}?sslmode=disable
+      REDIS_URL: redis://redis:6379
+      JWT_SIGNING_KEY: ${JWT_SIGNING_KEY:?set in .env}
+      # APNs and FCM credentials are mounted as files, not committed.
+      APNS_KEY_PATH: /run/secrets/apns.p8
+      FCM_CREDENTIALS_PATH: /run/secrets/fcm.json
+    ports:
+      - "${API_PORT:-8080}:8080"
+    restart: unless-stopped

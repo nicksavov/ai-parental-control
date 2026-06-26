@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/nicksavov/ai-parental-control/packages/alert-schema/alert.schema.json",
+  "title": "Alert",
+  "description": "The plaintext payload of an alert, produced on the child device by the on-device AI and enforcement layers. This object is end-to-end encrypted before it leaves the device (see packages/pairing-protocol). INVARIANT: this schema carries only structured metadata and an optional short, length-capped snippet. It MUST NOT carry raw media, full message bodies, file paths to media, base64 content, or URLs that point to a child's content. additionalProperties is false everywhere to enforce this.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["v", "id", "childDeviceId", "category", "severity", "createdAt", "source"],
+  "properties": {
+    "v": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version. Bump on breaking changes."
+    },
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique alert id (UUID v4), generated on the child device."
+    },
+    "childDeviceId": {
+      "type": "string",
+      "description": "Opaque device id assigned at pairing. Not a phone number, IMEI, or other hardware identifier."
+    },
+    "category": {
+      "type": "string",
+      "description": "The risk category that fired.",
+      "enum": [
+        "cyberbullying",
+        "depression",
+        "anxiety",
+        "self_harm",
+        "suicidal_ideation",
+        "grooming",
+        "sexual_content_text",
+        "nudity_image",
+        "drugs",
+        "alcohol",
+        "smoking_vaping",
+        "violence",
+        "weapons",
+        "hate_speech",
+        "profanity",
+        "gambling",
+        "body_image",
+        "contact_concern",
+        "filter_block",
+        "limit_reached",
+        "tamper"
+      ]
+    },
+    "severity": {
+      "type": "string",
+      "description": "Two-tier model plus an info level for non-content events. 'severe' is the high-priority tier; 'all' is the moderate tier (mirrors Bark's sensitivity model); 'info' is for filter/limit/tamper events.",
+      "enum": ["info", "all", "severe"]
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp from the child device clock."
+    },
+    "source": {
+      "type": "string",
+      "description": "Where the event came from, as an app or surface label (for example 'sms', 'instagram', 'chrome', 'photos', 'system'). Not the content itself.",
+      "maxLength": 64
+    },
+    "modality": {
+      "type": "string",
+      "enum": ["text", "image", "web", "usage", "location", "system"],
+      "description": "What kind of signal produced the alert."
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Model confidence for AI-derived alerts."
+    },
+    "rationale": {
+      "type": "string",
+      "maxLength": 280,
+      "description": "Optional short, human-readable reason from the on-device classifier (for example 'language indicating self-harm'). Not the analyzed content."
+    },
+    "snippet": {
+      "type": "string",
+      "maxLength": 280,
+      "description": "Optional short context snippet for TEXT modality only. This is the ONLY field that may contain any portion of a child's content, it is capped at 280 characters, it is never the full message, and the parent chooses whether to view it. MUST be omitted for image modality (we never include any portion of a flagged image)."
+    }
+  },
+  "$comment": "Forbidden by design (do not add these fields, ever): rawText, body, fullMessage, image, imageData, base64, mediaPath, filePath, mediaUrl, contentUrl, attachment, thumbnail, screenshot. CI tests assert these keys never appear. Adding any of them would turn an alert relay into a content store and cross the CSAM/wiretap/COPPA lines."
+}

@@ -1,0 +1,55 @@
+# Dependencies
+node_modules/
+vendor/
+.pnp.*
+
+# Build output
+dist/
+build/
+out/
+target/
+bin/
+obj/
+*.apk
+*.aab
+*.ipa
+*.app
+*.exe
+*.dll
+*.msix
+
+# AI model binaries (downloaded as assets, not committed)
+ai/models/*.onnx
+ai/models/*.gguf
+ai/models/*.bin
+ai/models/*.tflite
+ai/models/*.mlmodel
+ai/models/*.mlpackage
+
+# Secrets and local config
+.env
+.env.*
+!.env.example
+*.p8
+*.pem
+*.keystore
+*.jks
+secrets/
+*.local.json
+
+# Backend / docker
+backend/data/
+*.sqlite
+*.db
+
+# IDE and OS
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+Thumbs.db
+*.swp
+
+# Logs
+*.log
+logs/

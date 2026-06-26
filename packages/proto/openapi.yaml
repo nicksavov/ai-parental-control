@@ -1,0 +1,174 @@
+openapi: 3.1.0
+info:
+  title: ai-parental-control coordination API
+  version: 0.1.0
+  description: >
+    Thin coordination API between child agents, parent apps, and the backend.
+    The backend relays end-to-end-encrypted alert envelopes and never stores raw
+    media or message bodies. Alert plaintext follows packages/alert-schema;
+    policies follow packages/policy-model.
+  license:
+    name: AGPL-3.0-or-later
+servers:
+  - url: https://api.example.org
+    description: Replace with your self-hosted or hosted instance
+security:
+  - bearerAuth: []
+paths:
+  /v1/auth/token:
+    post:
+      summary: Exchange credentials or refresh token for an access token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                grantType: { type: string, enum: [password, refresh, device] }
+                email: { type: string }
+                password: { type: string }
+                refreshToken: { type: string }
+                deviceCredential: { type: string }
+      responses:
+        "200":
+          description: Tokens issued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accessToken: { type: string }
+                  refreshToken: { type: string }
+                  expiresIn: { type: integer }
+
+  /v1/family/children:
+    post:
+      summary: Create a child under the authenticated parent's family
+      responses:
+        "201": { description: Created }
+
+  /v1/pairing/codes:
+    post:
+      summary: Parent requests a short-lived pairing code and receives their identity public key
+      responses:
+        "201":
+          description: Pairing code issued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code: { type: string }
+                  qr: { type: string, description: "Data URL for the QR image" }
+                  parentIdentityPublicKey: { type: string }
+                  expiresAt: { type: string, format: date-time }
+
+  /v1/pairing/claim:
+    post:
+      summary: Child agent claims a pairing code and registers its device
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code, devicePublicKey, platform, capabilities]
+              properties:
+                code: { type: string }
+                devicePublicKey: { type: string }
+                platform: { type: string, enum: [android, ios, ipados, windows, macos] }
+                capabilities:
+                  type: array
+                  items: { type: string }
+                  description: Policy rule ids this agent can enforce
+                pushToken: { type: string }
+      responses:
+        "200":
+          description: Device registered
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  childDeviceId: { type: string }
+                  deviceCredential: { type: string }
+
+  /v1/devices/{childDeviceId}/policy:
+    get:
+      summary: Agent fetches the current policy for its child
+      parameters:
+        - { name: childDeviceId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Current policy
+          content:
+            application/json:
+              schema:
+                $ref: "../policy-model/policy.schema.json"
+    put:
+      summary: Parent app sets the policy for a child
+      parameters:
+        - { name: childDeviceId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "../policy-model/policy.schema.json"
+      responses:
+        "204": { description: Updated, distributed to agents over the live channel }
+
+  /v1/alerts:
+    post:
+      summary: Child agent submits an end-to-end-encrypted alert envelope
+      description: >
+        The body is ciphertext. The backend stores and relays it without
+        decrypting. The plaintext inside follows packages/alert-schema.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AlertEnvelope"
+      responses:
+        "202": { description: Accepted for relay }
+
+  /v1/alerts/stream:
+    get:
+      summary: Parent app long-lived channel for encrypted alert envelopes
+      description: WebSocket upgrade in practice; documented here as the pull fallback.
+      responses:
+        "200":
+          description: A page of encrypted envelopes the parent has not yet acknowledged
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/AlertEnvelope" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    AlertEnvelope:
+      type: object
+      description: >
+        Transport wrapper for an alert. Carries ciphertext only. The backend can
+        route by recipient and id but cannot read the alert.
+      additionalProperties: false
+      required: [v, id, childDeviceId, recipientId, createdAt, ciphertext, nonce]
+      properties:
+        v: { type: integer, const: 1 }
+        id: { type: string, format: uuid }
+        childDeviceId: { type: string }
+        recipientId: { type: string, description: "Parent device the envelope is encrypted to" }
+        createdAt: { type: string, format: date-time }
+        ciphertext: { type: string, description: "Base64 AEAD ciphertext of the alert plaintext" }
+        nonce: { type: string }
+        ephemeralPublicKey: { type: string, description: "Present when the handshake needs it" }

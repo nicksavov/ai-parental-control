@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/nicksavov/ai-parental-control/packages/policy-model/policy.schema.json",
+  "title": "ChildPolicy",
+  "description": "The rules a parent sets for one child, distributed from the backend to that child's agents. Same model across all platforms; each agent enforces what its OS allows (see the capability matrix in docs/architecture.md). Unsupported rules on a given OS are reported back as 'not enforceable here', never silently dropped.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["v", "childId", "updatedAt"],
+  "properties": {
+    "v": { "type": "integer", "const": 1 },
+    "childId": { "type": "string" },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "filtering": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "DNS and content filtering.",
+      "properties": {
+        "enabled": { "type": "boolean", "default": true },
+        "safeSearch": { "type": "boolean", "default": true },
+        "blockedCategories": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "adult", "drugs", "alcohol", "gambling", "weapons", "violence",
+              "hate", "illegal", "malware", "streaming", "online_gaming",
+              "social_media", "shopping", "file_sharing", "proxy_vpn", "chat"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "blockedDomains": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "allowedDomains": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+      }
+    },
+    "screenTime": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Total and per-app time budgets, plus schedule windows.",
+      "properties": {
+        "dailyTotalMinutes": { "type": "integer", "minimum": 0 },
+        "perApp": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["appId", "dailyMinutes"],
+            "properties": {
+              "appId": { "type": "string", "description": "Platform app id (Android package, bundle id, or Windows exe/AppUserModelID)." },
+              "dailyMinutes": { "type": "integer", "minimum": 0 }
+            }
+          }
+        },
+        "windows": {
+          "type": "array",
+          "description": "Named schedule windows (bedtime, school, free time) that block or allow during a recurring time range.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "mode", "days", "start", "end"],
+            "properties": {
+              "name": { "type": "string" },
+              "mode": { "type": "string", "enum": ["block_all", "allow_only", "block_internet"] },
+              "days": {
+                "type": "array",
+                "items": { "type": "string", "enum": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] },
+                "uniqueItems": true
+              },
+              "start": { "type": "string", "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$", "description": "Local time HH:MM." },
+              "end": { "type": "string", "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$" },
+              "allowedApps": { "type": "array", "items": { "type": "string" }, "description": "Used when mode is allow_only (for example schoolwork apps)." }
+            }
+          }
+        }
+      }
+    },
+    "monitoring": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Which on-device AI tracks are on, and per-category sensitivity. All inference is on-device; this never enables cloud routing.",
+      "properties": {
+        "imageNudity": { "type": "boolean", "default": true },
+        "textAnalysis": { "type": "boolean", "default": false, "description": "Where the OS and build allow reading text (see capability matrix). Off by default." },
+        "categorySensitivity": {
+          "type": "object",
+          "additionalProperties": { "type": "string", "enum": ["none", "all", "severe"] },
+          "description": "Per-category alert tier, keyed by the category names in alert.schema.json."
+        }
+      }
+    },
+    "location": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "historyDays": { "type": "integer", "minimum": 0, "maximum": 90, "default": 30 },
+        "geofences": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "lat", "lng", "radiusMeters"],
+            "properties": {
+              "name": { "type": "string" },
+              "lat": { "type": "number" },
+              "lng": { "type": "number" },
+              "radiusMeters": { "type": "integer", "minimum": 100 }
+            }
+          }
+        }
+      }
+    }
+  }
+}
