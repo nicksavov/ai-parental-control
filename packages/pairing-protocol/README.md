@@ -2,7 +2,7 @@
 
 How a parent links a child device, and how the end-to-end encryption keys are established so the backend can relay alerts it cannot read.
 
-This is a design spec for the scaffold. The implementation lives in the shared Rust core and is the security-critical part of the system, so it gets one audited implementation rather than one per platform.
+The implementation is the `apc-pairing` crate ([Cargo.toml](Cargo.toml), [src/lib.rs](src/lib.rs)). It is the security-critical part of the system, so it gets one audited implementation rather than one per platform. Crypto: X25519 Diffie-Hellman, Ed25519 prekey signatures, HKDF-SHA256, XChaCha20-Poly1305. Run the tests with `cargo test -p apc-pairing` from the `packages` workspace.
 
 ## Goals
 

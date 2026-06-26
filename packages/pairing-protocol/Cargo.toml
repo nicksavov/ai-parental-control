@@ -1,0 +1,19 @@
+[package]
+name = "apc-pairing"
+version = "0.1.0"
+description = "Device pairing (X3DH-style) and end-to-end alert encryption for ai-parental-control"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+apc-alert = { path = "../alert-schema" }
+serde.workspace = true
+serde_json.workspace = true
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+chacha20poly1305 = "0.10"
+hkdf = "0.12"
+sha2 = "0.10"
+rand_core = { version = "0.6", features = ["getrandom"] }
+base64 = "0.22"
