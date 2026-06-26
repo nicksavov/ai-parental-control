@@ -1,13 +1,18 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"time"
 )
 
-const pairingCodeTTL = 10 * time.Minute
+const (
+	pairingCodeTTL = 10 * time.Minute
+	streamWait     = 25 * time.Second
+)
 
 // envelopeRouting is the ONLY part of an alert envelope the backend reads. The
 // ciphertext and nonce are never parsed here; the full body is relayed as-is.
@@ -23,28 +28,90 @@ func decode(r *http.Request, v any) error {
 	return json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(v)
 }
 
-// POST /v1/auth/token
-// Scaffold: password grant accepts any credentials and treats the email as the
-// parent id. Real auth verifies a hashed password and issues refresh tokens.
-func (s *server) handleToken(w http.ResponseWriter, r *http.Request) {
+// POST /v1/auth/register
+func (s *server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		GrantType string `json:"grantType"`
-		Email     string `json:"email"`
-		Password  string `json:"password"`
+		Email    string `json:"email"`
+		Password string `json:"password"`
 	}
 	if err := decode(r, &req); err != nil || req.Email == "" {
-		writeError(w, http.StatusBadRequest, "email required")
+		writeError(w, http.StatusBadRequest, "email and password required")
 		return
 	}
+	if len(req.Password) < 8 {
+		writeError(w, http.StatusBadRequest, errWeakPassword.Error())
+		return
+	}
+	hash, err := hashPassword(req.Password)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not hash password")
+		return
+	}
+	id, err := s.store.CreateUser(r.Context(), req.Email, hash)
+	if errors.Is(err, errConflict) {
+		writeError(w, http.StatusConflict, "email already registered")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not create user")
+		return
+	}
+	s.writeTokens(w, id, "parent")
+}
+
+// POST /v1/auth/token (password or refresh grant)
+func (s *server) handleToken(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		GrantType    string `json:"grantType"`
+		Email        string `json:"email"`
+		Password     string `json:"password"`
+		RefreshToken string `json:"refreshToken"`
+	}
+	if err := decode(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "bad request")
+		return
+	}
+	switch req.GrantType {
+	case "password":
+		u, err := s.store.UserByEmail(r.Context(), req.Email)
+		if err != nil || !verifyPassword(req.Password, u.PasswordHash) {
+			writeError(w, http.StatusUnauthorized, "invalid credentials")
+			return
+		}
+		s.writeTokens(w, u.ID, "parent")
+	case "refresh":
+		c, err := s.parse(req.RefreshToken)
+		if err != nil || c.Typ != "refresh" {
+			writeError(w, http.StatusUnauthorized, "invalid refresh token")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"accessToken": s.issueAccess(c.Sub, c.Role),
+			"tokenType":   "Bearer",
+			"expiresIn":   int(accessTTL.Seconds()),
+		})
+	default:
+		writeError(w, http.StatusBadRequest, "unsupported grantType")
+	}
+}
+
+func (s *server) writeTokens(w http.ResponseWriter, sub, role string) {
 	writeJSON(w, http.StatusOK, map[string]any{
-		"accessToken": s.sign("parent", req.Email),
-		"tokenType":   "Bearer",
+		"accessToken":  s.issueAccess(sub, role),
+		"refreshToken": s.issueRefresh(sub, role),
+		"tokenType":    "Bearer",
+		"expiresIn":    int(accessTTL.Seconds()),
 	})
 }
 
 // POST /v1/family/children
-func (s *server) handleCreateChild(w http.ResponseWriter, _ *http.Request, parentID string) {
-	writeJSON(w, http.StatusCreated, map[string]string{"childId": s.store.createChild(parentID)})
+func (s *server) handleCreateChild(w http.ResponseWriter, r *http.Request, parentID string) {
+	id, err := s.store.CreateChild(r.Context(), parentID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not create child")
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]string{"childId": id})
 }
 
 // POST /v1/pairing/codes
@@ -56,7 +123,7 @@ func (s *server) handleCreateCode(w http.ResponseWriter, r *http.Request, parent
 		writeError(w, http.StatusBadRequest, "childId required")
 		return
 	}
-	pc, err := s.store.createPairingCode(parentID, req.ChildID, pairingCodeTTL)
+	pc, err := s.store.CreatePairingCode(r.Context(), parentID, req.ChildID, time.Now().Add(pairingCodeTTL))
 	if err != nil {
 		writeError(w, http.StatusForbidden, "not your child")
 		return
@@ -81,14 +148,16 @@ func (s *server) handleClaim(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "code required")
 		return
 	}
-	d, err := s.store.claimCode(req.Code, req.DevicePubKey, req.Platform, req.Capabilities)
+	d, err := s.store.ClaimCode(r.Context(), req.Code, req.DevicePubKey, req.Platform, req.Capabilities, time.Now())
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid or expired code")
 		return
 	}
+	// The device credential is a long-lived refresh token; the agent exchanges
+	// it for short-lived access tokens via /v1/auth/token.
 	writeJSON(w, http.StatusOK, map[string]string{
 		"childDeviceId":    d.ChildDeviceID,
-		"deviceCredential": s.sign("device", d.ChildDeviceID),
+		"deviceCredential": s.issueRefresh(d.ChildDeviceID, "device"),
 	})
 }
 
@@ -96,18 +165,14 @@ func (s *server) handleClaim(w http.ResponseWriter, r *http.Request) {
 func (s *server) handlePutPolicy(w http.ResponseWriter, r *http.Request, parentID string) {
 	id := r.PathValue("id")
 	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "bad body")
-		return
-	}
-	if !json.Valid(body) {
+	if err != nil || !json.Valid(body) {
 		writeError(w, http.StatusBadRequest, "policy must be JSON")
 		return
 	}
-	switch err := s.store.setPolicy(parentID, id, body); err {
-	case nil:
+	switch err := s.store.SetPolicy(r.Context(), parentID, id, body); {
+	case err == nil:
 		w.WriteHeader(http.StatusNoContent)
-	case errForbidden:
+	case errors.Is(err, errForbidden):
 		writeError(w, http.StatusForbidden, "not your device")
 	default:
 		writeError(w, http.StatusNotFound, "device not found")
@@ -120,9 +185,13 @@ func (s *server) handleGetPolicy(w http.ResponseWriter, r *http.Request, childDe
 		writeError(w, http.StatusForbidden, "a device may only read its own policy")
 		return
 	}
-	policy, ok := s.store.getPolicy(childDeviceID)
-	if !ok {
+	policy, err := s.store.GetPolicy(r.Context(), childDeviceID)
+	if errors.Is(err, errNotFound) {
 		writeJSON(w, http.StatusOK, map[string]any{})
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not load policy")
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -142,25 +211,37 @@ func (s *server) handleSubmitAlert(w http.ResponseWriter, r *http.Request, child
 		writeError(w, http.StatusBadRequest, "malformed envelope")
 		return
 	}
-	// A device may only submit envelopes for itself, addressed to the parent it
-	// is paired with. This prevents a compromised device from spoofing others or
-	// fanning out to arbitrary recipients.
 	if route.ChildDeviceID != childDeviceID {
 		writeError(w, http.StatusForbidden, "envelope childDeviceId does not match device")
 		return
 	}
-	d, ok := s.store.deviceByID(childDeviceID)
-	if !ok || route.RecipientID != d.RecipientID {
+	d, err := s.store.DeviceByID(r.Context(), childDeviceID)
+	if err != nil || route.RecipientID != d.RecipientID {
 		writeError(w, http.StatusForbidden, "envelope recipient is not the paired parent")
 		return
 	}
-	s.store.enqueueEnvelope(route.RecipientID, body)
+	if err := s.store.EnqueueEnvelope(r.Context(), route.RecipientID, body); err != nil {
+		writeError(w, http.StatusInternalServerError, "could not queue")
+		return
+	}
+	s.notifier.Notify(r.Context(), route.RecipientID)
 	w.WriteHeader(http.StatusAccepted)
 }
 
-// GET /v1/alerts/stream (parent pulls queued envelopes; WebSocket later)
-func (s *server) handleStreamAlerts(w http.ResponseWriter, _ *http.Request, parentID string) {
-	raw := s.store.drainInbox(parentID)
+// GET /v1/alerts/stream (parent pulls queued envelopes; ?wait=1 long-polls)
+func (s *server) handleStreamAlerts(w http.ResponseWriter, r *http.Request, parentID string) {
+	ctx := r.Context()
+	raw, err := s.store.DrainInbox(ctx, parentID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not read inbox")
+		return
+	}
+	if len(raw) == 0 && r.URL.Query().Get("wait") == "1" {
+		wctx, cancel := context.WithTimeout(ctx, streamWait)
+		defer cancel()
+		s.notifier.Wait(wctx, parentID)
+		raw, _ = s.store.DrainInbox(ctx, parentID)
+	}
 	out := make([]json.RawMessage, 0, len(raw))
 	for _, e := range raw {
 		out = append(out, json.RawMessage(e))
