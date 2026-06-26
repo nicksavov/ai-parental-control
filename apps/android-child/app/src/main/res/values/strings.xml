@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Parental Control</string>
+
+    <!-- Overt monitoring notification. Plain and honest by design. -->
+    <string name="monitoring_channel_name">Monitoring active</string>
+    <string name="monitoring_channel_desc">Shows while parental monitoring is on.</string>
+    <string name="monitoring_active_title">Parental monitoring is on</string>
+    <string name="monitoring_active_text">Your parent set up monitoring on this device.</string>
+</resources>

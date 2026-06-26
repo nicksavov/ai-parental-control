@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Sideload ("deep") flavor only. Merged on top of the main manifest.
+
+  This build is distributed outside Google Play (F-Droid or direct APK), so it
+  may use the capabilities Play forbids for monitoring apps. It is STILL overt:
+  the persistent notification and visible icon from the main manifest remain, and
+  there is no stealth mode. Sideloading removes the store-policy ceiling, not the
+  legal (stalkerware/wiretap/COPPA) one.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Optional: read SMS for monitoring. Not allowed on the Play build. Gated
+         behind explicit setup consent. -->
+    <uses-permission android:name="android.permission.READ_SMS" />
+
+    <application>
+        <!-- AccessibilityService for full on-screen text (the text AI source) and
+             more robust app-block detection. Play classifies monitoring use as
+             ineligible, so it ships only here. Enabled by the parent at setup
+             with a clear disclosure. -->
+        <service
+            android:name=".accessibility.TextMonitorAccessibilityService"
+            android:exported="false"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+            tools:ignore="AccessibilityPolicy">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_config" />
+        </service>
+    </application>
+</manifest>
