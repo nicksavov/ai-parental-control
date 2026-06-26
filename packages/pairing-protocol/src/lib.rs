@@ -176,6 +176,104 @@ pub fn responder_handshake(
     derive_shared_secret(dh1.as_bytes(), dh2.as_bytes(), dh3.as_bytes())
 }
 
+// --- Byte-oriented API for FFI and storage ---------------------------------
+//
+// The mobile and desktop agents store keys in the platform keystore and cross an
+// FFI boundary, so they need to export and import key material as plain bytes.
+// These helpers keep the crypto types contained in this crate; callers (the
+// apc-ffi layer) deal only in fixed-size byte arrays.
+
+impl DeviceIdentity {
+    /// Reconstruct an identity from stored secret bytes.
+    pub fn from_secret_bytes(dh_secret: [u8; 32], signing_secret: [u8; 32]) -> DeviceIdentity {
+        DeviceIdentity {
+            dh_secret: StaticSecret::from(dh_secret),
+            signing: SigningKey::from_bytes(&signing_secret),
+        }
+    }
+
+    /// Export the secret bytes for storage in the platform keystore.
+    pub fn secret_bytes(&self) -> ([u8; 32], [u8; 32]) {
+        (self.dh_secret.to_bytes(), self.signing.to_bytes())
+    }
+
+    pub fn dh_public_bytes(&self) -> [u8; 32] {
+        self.dh_public().to_bytes()
+    }
+
+    pub fn verifying_key_bytes(&self) -> [u8; 32] {
+        self.verifying_key().to_bytes()
+    }
+}
+
+impl ResponderPrekey {
+    pub fn from_secret_bytes(secret: [u8; 32]) -> ResponderPrekey {
+        ResponderPrekey {
+            secret: StaticSecret::from(secret),
+        }
+    }
+
+    pub fn secret_bytes(&self) -> [u8; 32] {
+        self.secret.to_bytes()
+    }
+
+    pub fn public_bytes(&self) -> [u8; 32] {
+        self.public().to_bytes()
+    }
+}
+
+impl PrekeyBundle {
+    /// (identity_dh_public, identity_verifying_key, signed_prekey_public, prekey_signature)
+    pub fn raw_parts(&self) -> ([u8; 32], [u8; 32], [u8; 32], [u8; 64]) {
+        (
+            self.identity_dh_public.to_bytes(),
+            self.identity_verifying_key.to_bytes(),
+            self.signed_prekey_public.to_bytes(),
+            self.prekey_signature.to_bytes(),
+        )
+    }
+
+    pub fn from_raw(
+        identity_dh: [u8; 32],
+        identity_vk: [u8; 32],
+        signed_prekey: [u8; 32],
+        signature: [u8; 64],
+    ) -> Result<PrekeyBundle, PairingError> {
+        Ok(PrekeyBundle {
+            identity_dh_public: PublicKey::from(identity_dh),
+            identity_verifying_key: VerifyingKey::from_bytes(&identity_vk)
+                .map_err(|_| PairingError::BadKeyLength)?,
+            signed_prekey_public: PublicKey::from(signed_prekey),
+            prekey_signature: Signature::from_bytes(&signature),
+        })
+    }
+}
+
+impl InitiatorHandshake {
+    pub fn initiator_dh_public_bytes(&self) -> [u8; 32] {
+        self.initiator_dh_public.to_bytes()
+    }
+
+    pub fn ephemeral_public_bytes(&self) -> [u8; 32] {
+        self.ephemeral_public.to_bytes()
+    }
+}
+
+/// Responder handshake from raw public-key bytes (the FFI-friendly variant).
+pub fn responder_handshake_raw(
+    responder: &DeviceIdentity,
+    prekey: &ResponderPrekey,
+    initiator_dh_public: [u8; 32],
+    ephemeral_public: [u8; 32],
+) -> [u8; 32] {
+    responder_handshake(
+        responder,
+        prekey,
+        &PublicKey::from(initiator_dh_public),
+        &PublicKey::from(ephemeral_public),
+    )
+}
+
 fn message_key(shared_secret: &[u8; 32]) -> Key {
     let hk = Hkdf::<Sha256>::new(None, shared_secret);
     let mut okm = [0u8; 32];
@@ -397,5 +495,34 @@ mod tests {
         let wire = serde_json::to_string(&envelope).unwrap();
         let back: AlertEnvelope = serde_json::from_str(&wire).unwrap();
         assert_eq!(envelope, back);
+    }
+
+    #[test]
+    fn byte_export_import_preserves_the_handshake() {
+        // Exercise the FFI-facing byte API end to end: export every key, rebuild
+        // from bytes on the "other side", and confirm both sides still agree.
+        let child = DeviceIdentity::generate();
+        let parent = DeviceIdentity::generate();
+        let parent_prekey = ResponderPrekey::generate();
+        let bundle = build_prekey_bundle(&parent, &parent_prekey);
+
+        let (cd, cs) = child.secret_bytes();
+        let child2 = DeviceIdentity::from_secret_bytes(cd, cs);
+        let (idh, ivk, spk, sig) = bundle.raw_parts();
+        let bundle2 = PrekeyBundle::from_raw(idh, ivk, spk, sig).unwrap();
+
+        let init = initiator_handshake(&child2, &bundle2).unwrap();
+
+        let (pd, ps) = parent.secret_bytes();
+        let parent2 = DeviceIdentity::from_secret_bytes(pd, ps);
+        let prekey2 = ResponderPrekey::from_secret_bytes(parent_prekey.secret_bytes());
+        let parent_secret = responder_handshake_raw(
+            &parent2,
+            &prekey2,
+            init.initiator_dh_public_bytes(),
+            init.ephemeral_public_bytes(),
+        );
+
+        assert_eq!(init.shared_secret, parent_secret);
     }
 }

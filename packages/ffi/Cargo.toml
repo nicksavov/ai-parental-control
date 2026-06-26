@@ -1,0 +1,19 @@
+[package]
+name = "apc-ffi"
+version = "0.1.0"
+description = "UniFFI binding layer exposing the apc core to Swift and Kotlin"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "apc_ffi"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[dependencies]
+apc-alert = { path = "../alert-schema" }
+apc-pairing = { path = "../pairing-protocol" }
+serde_json.workspace = true
+uniffi = "0.28"
+base64 = "0.22"
+thiserror = "1"

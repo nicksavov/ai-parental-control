@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["alert-schema", "policy-model", "pairing-protocol"]
+members = ["alert-schema", "policy-model", "pairing-protocol", "ffi"]
 
 [workspace.package]
 edition = "2021"
