@@ -1,11 +1,13 @@
 import { useState } from "react";
 import type { ApiClient } from "../api/client";
 import type { AlertEnvelope, PairingCode } from "../api/types";
+import { cryptoSelfTest } from "../api/crypto";
 
 export function Dashboard({ client, onLogout }: { client: ApiClient; onLogout: () => void }) {
   const [childId, setChildId] = useState<string | null>(null);
   const [code, setCode] = useState<PairingCode | null>(null);
   const [envelopes, setEnvelopes] = useState<AlertEnvelope[]>([]);
+  const [selfTest, setSelfTest] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function guard(fn: () => Promise<void>) {
@@ -60,8 +62,19 @@ export function Dashboard({ client, onLogout }: { client: ApiClient; onLogout: (
           </ul>
         )}
         <p className="muted small">
-          Alerts arrive end-to-end encrypted. Decrypting them in the browser uses a WASM build of the shared core
-          (packages/ffi); that wiring is the next step.
+          Alerts arrive end-to-end encrypted. They are decrypted here in your browser with the shared core compiled
+          to WebAssembly (packages/wasm); the backend never sees the plaintext.
+        </p>
+      </div>
+
+      <div className="block">
+        <button onClick={() => guard(async () => setSelfTest(await cryptoSelfTest()))}>
+          Run in-browser decryption self-test
+        </button>
+        {selfTest && <pre className="selftest">{JSON.stringify(JSON.parse(selfTest), null, 2)}</pre>}
+        <p className="muted small">
+          Pairs two identities, seals a demo alert, and decrypts it, entirely client side, to prove the audited core
+          runs in this browser.
         </p>
       </div>
     </section>
